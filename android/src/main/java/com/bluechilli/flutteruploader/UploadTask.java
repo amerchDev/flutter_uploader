@@ -1,8 +1,6 @@
 package com.bluechilli.flutteruploader;
 
 import android.net.Uri;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -10,12 +8,14 @@ public class UploadTask {
 
   private String _url;
   private String _method;
-  private Map<String, String> _headers = new HashMap<>();
-  private Map<String, String> _data = new HashMap<>();
-  private List<FileItem> _files = new ArrayList<>();
-  private int _requestTimeoutInSeconds = 3600;
-  private boolean _showNotification = false;
+  private Map<String, String> _headers;
+  private Map<String, String> _data;
+  private List<FileItem> _files;
+  private int _requestTimeoutInSeconds;
+  private boolean _showNotification;
+  private boolean _binaryUpload;
   private String _tag;
+  private Date _earliestBeginDate;
   private int _id;
 
   public UploadTask(
@@ -27,7 +27,8 @@ public class UploadTask {
       Map<String, String> data,
       int requestTimeoutInSeconds,
       boolean showNotification,
-      String tag) {
+      boolean binaryUpload,
+      String tag, Date earliestBeginDate) {
     _id = id;
     _url = url;
     _method = method;
@@ -36,7 +37,9 @@ public class UploadTask {
     _data = data;
     _requestTimeoutInSeconds = requestTimeoutInSeconds;
     _showNotification = showNotification;
+    _binaryUpload = binaryUpload;
     _tag = tag;
+    _earliestBeginDate = earliestBeginDate;
   }
 
   public String getURL() {
@@ -71,11 +74,19 @@ public class UploadTask {
     return _showNotification;
   }
 
+  public boolean isBinaryUpload() {
+    return _binaryUpload;
+  }
+
   public String getTag() {
     return _tag;
   }
 
   public int getId() {
     return _id;
+  }
+
+  public int getEarliestBeginDate() {
+    return _earliestBeginDate;
   }
 }

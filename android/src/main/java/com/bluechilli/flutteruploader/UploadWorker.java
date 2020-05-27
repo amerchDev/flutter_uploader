@@ -4,15 +4,14 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
-import android.content.Intent;
 import android.content.res.Resources;
 import android.os.Build;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
+import android.webkit.URLUtil;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.work.Data;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
@@ -38,11 +37,6 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 public class UploadWorker extends Worker implements CountProgressListener {
-  public static final String UPDATE_PROCESS_EVENT =
-      "com.bluechilli.flutteruploader.UPDATE_PROCESS_EVENT";
-  public static final String COMPLETED_EVENT = "com.bluechilli.flutteruploader.COMPLETED_EVENT";
-  public static final String FAILURE_EVENT = "com.bluechilli.flutteruploader.FAILURE_EVENT";
-
   public static final String ARG_URL = "url";
   public static final String ARG_METHOD = "method";
   public static final String ARG_HEADERS = "headers";
@@ -50,6 +44,7 @@ public class UploadWorker extends Worker implements CountProgressListener {
   public static final String ARG_FILES = "files";
   public static final String ARG_REQUEST_TIMEOUT = "requestTimeout";
   public static final String ARG_SHOW_NOTIFICATION = "showNotification";
+  public static final String ARG_BINARY_UPLOAD = "binaryUpload";
   public static final String ARG_UPLOAD_REQUEST_TAG = "tag";
   public static final String ARG_ID = "primaryId";
   public static final String EXTRA_STATUS_CODE = "statusCode";
@@ -58,12 +53,12 @@ public class UploadWorker extends Worker implements CountProgressListener {
   public static final String EXTRA_ERROR_CODE = "errorCode";
   public static final String EXTRA_ERROR_DETAILS = "errorDetails";
   public static final String EXTRA_RESPONSE = "response";
-  public static final String EXTRA_PROGRESS = "progress";
   public static final String EXTRA_ID = "id";
   public static final String EXTRA_HEADERS = "headers";
   private static final String TAG = UploadWorker.class.getSimpleName();
   private static final String CHANNEL_ID = "FLUTTER_UPLOADER_NOTIFICATION";
   private static final int UPDATE_STEP = 0;
+  private static final int DEFAULT_ERROR_STATUS_CODE = 500;
 
   private NotificationCompat.Builder builder;
   private boolean showNotification;
@@ -72,6 +67,8 @@ public class UploadWorker extends Worker implements CountProgressListener {
   private int lastNotificationProgress = 0;
   private String tag;
   private int primaryId;
+  private Call call;
+  private boolean isCancelled = false;
 
   public UploadWorker(@NonNull Context context, @NonNull WorkerParameters workerParams) {
     super(context, workerParams);
@@ -80,12 +77,12 @@ public class UploadWorker extends Worker implements CountProgressListener {
   @NonNull
   @Override
   public Result doWork() {
-
     Context context = getApplicationContext();
     String url = getInputData().getString(ARG_URL);
     String method = getInputData().getString(ARG_METHOD);
     int timeout = getInputData().getInt(ARG_REQUEST_TIMEOUT, 3600);
     showNotification = getInputData().getBoolean(ARG_SHOW_NOTIFICATION, false);
+    boolean isBinaryUpload = getInputData().getBoolean(ARG_BINARY_UPLOAD, false);
     String headersJson = getInputData().getString(ARG_HEADERS);
     String parametersJson = getInputData().getString(ARG_DATA);
     String filesJson = getInputData().getString(ARG_FILES);
@@ -124,35 +121,57 @@ public class UploadWorker extends Worker implements CountProgressListener {
         files = gson.fromJson(filesJson, fileItemType);
       }
 
-      MultipartBody.Builder formRequestBuilder = prepareRequest(parameters, null);
+      final RequestBody innerRequestBody;
 
-      int fileExistsCount = 0;
-      for (FileItem item : files) {
+      if (isBinaryUpload) {
+        final FileItem item = files.get(0);
         File file = new File(item.getPath());
-        Log.d(TAG, "attaching file: " + item.getPath());
 
-        if (file.exists()) {
-          fileExistsCount++;
-          RequestBody fileBody =
-              RequestBody.create(MediaType.parse(GetMimeType(item.getPath())), file);
-          formRequestBuilder.addFormDataPart(item.getFieldname(), item.getFilename(), fileBody);
-        } else {
-          Log.d(TAG, "File does not exists -> file:" + item.getPath());
+        if (!file.exists()) {
+          return Result.failure(
+              createOutputErrorData(
+                  UploadStatus.FAILED,
+                  DEFAULT_ERROR_STATUS_CODE,
+                  "invalid_files",
+                  "There are no items to upload",
+                  null));
         }
+
+        String mimeType = GetMimeType(item.getPath());
+        MediaType contentType = MediaType.parse(mimeType);
+        innerRequestBody = RequestBody.create(file, contentType);
+      } else {
+        MultipartBody.Builder formRequestBuilder = prepareRequest(parameters, null);
+        int fileExistsCount = 0;
+        for (FileItem item : files) {
+          File file = new File(item.getPath());
+          Log.d(TAG, "attaching file: " + item.getPath());
+
+          if (file.exists() && file.isFile()) {
+            fileExistsCount++;
+            String mimeType = GetMimeType(item.getPath());
+            MediaType contentType = MediaType.parse(mimeType);
+            RequestBody fileBody = RequestBody.create(file, contentType);
+            formRequestBuilder.addFormDataPart(item.getFieldname(), item.getFilename(), fileBody);
+          } else {
+            Log.d(TAG, "File does not exists -> file:" + item.getPath());
+          }
+        }
+
+        if (fileExistsCount <= 0) {
+          return Result.failure(
+              createOutputErrorData(
+                  UploadStatus.FAILED,
+                  DEFAULT_ERROR_STATUS_CODE,
+                  "invalid_files",
+                  "There are no items to upload",
+                  null));
+        }
+
+        innerRequestBody = formRequestBuilder.build();
       }
 
-      if (fileExistsCount == 0) {
-        return Result.failure(
-            createOutputErrorData(
-                UploadStatus.FAILED,
-                statusCode,
-                "flutter_upload_error",
-                "there are not files to upload",
-                null));
-      }
-
-      RequestBody requestBody =
-          new CountingRequestBody(formRequestBuilder.build(), getId().toString(), this);
+      RequestBody requestBody = new CountingRequestBody(innerRequestBody, getId().toString(), this);
       Request.Builder requestBuilder = new Request.Builder();
 
       if (headers != null) {
@@ -167,9 +186,19 @@ public class UploadWorker extends Worker implements CountProgressListener {
         }
       }
 
+      if (!URLUtil.isValidUrl(url)) {
+        return Result.failure(
+            createOutputErrorData(
+                UploadStatus.FAILED,
+                DEFAULT_ERROR_STATUS_CODE,
+                "invalid_url",
+                "url is not a valid url",
+                null));
+      }
+
       requestBuilder.addHeader("Accept", "application/json; charset=utf-8");
-      requestBuilder.addHeader("Accept-Encoding", "br, gzip, deflate");
-      Request request = null;
+
+      Request request;
 
       switch (method.toUpperCase()) {
         case "PUT":
@@ -196,18 +225,31 @@ public class UploadWorker extends Worker implements CountProgressListener {
               .readTimeout((long) timeout, TimeUnit.SECONDS)
               .build();
 
-      Call call = client.newCall(request);
+      call = client.newCall(request);
       Response response = call.execute();
       String responseString = response.body().string();
       statusCode = response.code();
       Headers rheaders = response.headers();
       Map<String, String> outputHeaders = new HashMap<>();
 
-      if (rheaders != null) {
-        for (String name : rheaders.names()) {
-          outputHeaders.put(name, rheaders.get(name));
-        }
+      boolean hasJsonResponse = true;
+
+      String responseContentType = rheaders.get("content-type");
+
+      if (responseContentType != null && responseContentType.contains("json")) {
+        hasJsonResponse = true;
+      } else {
+        hasJsonResponse = false;
       }
+
+      for (String name : rheaders.names()) {
+        outputHeaders.put(name, rheaders.get(name));
+      }
+
+      String responseHeaders = gson.toJson(outputHeaders);
+
+      Log.d(TAG, "Response: " + responseString);
+      Log.d(TAG, "Response header: " + responseHeaders);
 
       if (!response.isSuccessful()) {
         if (showNotification) {
@@ -215,16 +257,25 @@ public class UploadWorker extends Worker implements CountProgressListener {
         }
         return Result.failure(
             createOutputErrorData(
-                UploadStatus.FAILED, statusCode, "flutter_upload_error", responseString, null));
+                UploadStatus.FAILED,
+                statusCode,
+                "upload_error",
+                hasJsonResponse ? responseString : null,
+                null));
       }
-      Data outputData =
+
+      Data.Builder builder =
           new Data.Builder()
               .putString(EXTRA_ID, getId().toString())
               .putInt(EXTRA_STATUS, UploadStatus.COMPLETE)
               .putInt(EXTRA_STATUS_CODE, statusCode)
-              .putString(EXTRA_RESPONSE, responseString)
-              .putString(EXTRA_HEADERS, gson.toJson(outputHeaders))
-              .build();
+              .putString(EXTRA_HEADERS, responseHeaders);
+
+      if (hasJsonResponse) {
+        builder.putString(EXTRA_RESPONSE, responseString);
+      }
+
+      Data outputData = builder.build();
 
       if (showNotification) {
         updateNotification(context, tag, UploadStatus.COMPLETE, 0, null);
@@ -233,65 +284,36 @@ public class UploadWorker extends Worker implements CountProgressListener {
       return Result.success(outputData);
 
     } catch (JsonIOException ex) {
-      ex.printStackTrace();
-
-      if (showNotification) {
-        updateNotification(context, tag, UploadStatus.FAILED, 0, null);
-      }
-
-      return Result.failure(
-          createOutputErrorData(
-              UploadStatus.FAILED,
-              500,
-              "flutter_upload_json_io",
-              ex.toString(),
-              getStacktraceAsStringList(ex.getStackTrace())));
-
+      return handleException(context, ex, "json_error");
     } catch (UnknownHostException ex) {
-      ex.printStackTrace();
-
-      if (showNotification) {
-        updateNotification(context, tag, UploadStatus.FAILED, 0, null);
-      }
-
-      return Result.failure(
-          createOutputErrorData(
-              UploadStatus.FAILED,
-              500,
-              "flutter_upload_unknown_host",
-              ex.toString(),
-              getStacktraceAsStringList(ex.getStackTrace())));
+      return handleException(context, ex, "unknown_host");
     } catch (IOException ex) {
-
-      ex.printStackTrace();
-
-      if (showNotification) {
-        updateNotification(context, tag, UploadStatus.FAILED, 0, null);
-      }
-
-      return Result.failure(
-          createOutputErrorData(
-              UploadStatus.FAILED,
-              500,
-              "flutter_upload_io_error",
-              ex.toString(),
-              getStacktraceAsStringList(ex.getStackTrace())));
+      return handleException(context, ex, "io_error");
     } catch (Exception ex) {
-
-      ex.printStackTrace();
-
-      if (showNotification) {
-        updateNotification(context, tag, UploadStatus.FAILED, 0, null);
-      }
-
-      return Result.failure(
-          createOutputErrorData(
-              UploadStatus.FAILED,
-              500,
-              "flutter_upload_error",
-              ex.toString(),
-              getStacktraceAsStringList(ex.getStackTrace())));
+      return handleException(context, ex, "upload error");
+    } finally {
+      call = null;
     }
+  }
+
+  private Result handleException(Context context, Exception ex, String code) {
+
+    ex.printStackTrace();
+
+    int finalStatus = isCancelled ? UploadStatus.CANCELED : UploadStatus.FAILED;
+    String finalCode = isCancelled ? "upload_cancelled" : code;
+
+    if (showNotification) {
+      updateNotification(context, tag, finalStatus, 0, null);
+    }
+
+    return Result.failure(
+        createOutputErrorData(
+            finalStatus,
+            500,
+            finalCode,
+            ex.toString(),
+            getStacktraceAsStringList(ex.getStackTrace())));
   }
 
   private String GetMimeType(String url) {
@@ -330,21 +352,18 @@ public class UploadWorker extends Worker implements CountProgressListener {
   }
 
   private void sendUpdateProcessEvent(Context context, int status, int progress) {
-    Intent intent = new Intent(UPDATE_PROCESS_EVENT);
-    intent.putExtra(EXTRA_ID, getId().toString());
-    intent.putExtra(EXTRA_STATUS, status);
-    intent.putExtra(EXTRA_PROGRESS, progress);
-    LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+    UploadProgressReporter.getInstance()
+        .notifyProgress(new UploadProgress(getId().toString(), status, progress));
   }
 
   private Data createOutputErrorData(
       int status, int statusCode, String code, String message, String[] details) {
     return new Data.Builder()
-        .putInt(EXTRA_STATUS_CODE, statusCode)
-        .putInt(EXTRA_STATUS, status)
-        .putString(EXTRA_ERROR_CODE, code)
-        .putString(EXTRA_ERROR_MESSAGE, message)
-        .putStringArray(EXTRA_ERROR_DETAILS, details)
+        .putInt(UploadWorker.EXTRA_STATUS_CODE, statusCode)
+        .putInt(UploadWorker.EXTRA_STATUS, status)
+        .putString(UploadWorker.EXTRA_ERROR_CODE, code)
+        .putString(UploadWorker.EXTRA_ERROR_MESSAGE, message)
+        .putStringArray(UploadWorker.EXTRA_ERROR_DETAILS, details)
         .build();
   }
 
@@ -366,6 +385,7 @@ public class UploadWorker extends Worker implements CountProgressListener {
             + ", lastProgress: "
             + lastProgress);
     if (running) {
+
       Context context = getApplicationContext();
       sendUpdateProcessEvent(context, UploadStatus.RUNNING, progress);
       boolean shouldSendNotification = isRunning(progress, lastNotificationProgress, 10);
@@ -375,6 +395,20 @@ public class UploadWorker extends Worker implements CountProgressListener {
       }
 
       lastProgress = progress;
+    }
+  }
+
+  @Override
+  public void onStopped() {
+    super.onStopped();
+    Log.d(TAG, "UploadWorker - Stopped");
+    try {
+      isCancelled = true;
+      if (call != null && !call.isCanceled()) {
+        call.cancel();
+      }
+    } catch (Exception ex) {
+      Log.d(TAG, "Upload Request cancelled", ex);
     }
   }
 
@@ -458,17 +492,17 @@ public class UploadWorker extends Worker implements CountProgressListener {
         && currentProgress != previousProgress;
   }
 
-  private String[] getStacktraceAsStringList(StackTraceElement[] stacktraces) {
+  private String[] getStacktraceAsStringList(StackTraceElement[] stacktrace) {
     List<String> output = new ArrayList<>();
 
-    if (stacktraces == null || (stacktraces != null && stacktraces.length == 0)) {
+    if (stacktrace == null || stacktrace.length == 0) {
       return null;
     }
 
-    for (StackTraceElement stacktrace : stacktraces) {
-      output.add(stacktrace.toString());
+    for (StackTraceElement stackTraceElement : stacktrace) {
+      output.add(stackTraceElement.toString());
     }
 
-    return (String[]) output.toArray();
+    return output.toArray(new String[0]);
   }
 }
