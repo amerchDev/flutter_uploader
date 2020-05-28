@@ -31,10 +31,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.Date;
+import java.text.SimpleDateFormat;
 
 /** FlutterUploaderPlugin */
-public class FlutterUploaderPlugin
-    implements MethodCallHandler, Application.ActivityLifecycleCallbacks {
+public class FlutterUploaderPlugin implements MethodCallHandler, Application.ActivityLifecycleCallbacks {
   /** Plugin registration. */
   private static final String TAG = "flutter_upload_task";
 
@@ -47,7 +48,7 @@ public class FlutterUploaderPlugin
   private Map<String, String> tasks = new HashMap<>();
   private Gson gson = new Gson();
   private int taskIdKey = 0;
-  private final String[] validHttpMethods = new String[] {"POST", "PUT", "PATCH"};
+  private final String[] validHttpMethods = new String[] { "POST", "PUT", "PATCH" };
 
   public static void registerWith(Registrar registrar) {
     final MethodChannel channel = new MethodChannel(registrar.messenger(), CHANNEL_NAME);
@@ -88,7 +89,8 @@ public class FlutterUploaderPlugin
     }
   }
 
-  @Nullable private UploadProgressObserver uploadProgressObserver;
+  @Nullable
+  private UploadProgressObserver uploadProgressObserver;
 
   static class UploadCompletedObserver implements Observer<List<WorkInfo>> {
     private final WeakReference<FlutterUploaderPlugin> plugin;
@@ -114,8 +116,7 @@ public class FlutterUploaderPlugin
 
             switch (info.getState()) {
               case FAILED:
-                int failedStatus =
-                    outputData.getInt(UploadWorker.EXTRA_STATUS, UploadStatus.FAILED);
+                int failedStatus = outputData.getInt(UploadWorker.EXTRA_STATUS, UploadStatus.FAILED);
                 int statusCode = outputData.getInt(UploadWorker.EXTRA_STATUS_CODE, 500);
                 String code = outputData.getString(UploadWorker.EXTRA_ERROR_CODE);
                 String errorMessage = outputData.getString(UploadWorker.EXTRA_ERROR_MESSAGE);
@@ -123,18 +124,14 @@ public class FlutterUploaderPlugin
                 plugin.sendFailed(id, failedStatus, statusCode, code, errorMessage, details);
                 break;
               case CANCELLED:
-                plugin.sendFailed(
-                    id,
-                    UploadStatus.CANCELED,
-                    500,
-                    "flutter_upload_cancelled",
-                    "upload has been cancelled",
-                    null);
+                plugin.sendFailed(id, UploadStatus.CANCELED, 500, "flutter_upload_cancelled",
+                    "upload has been cancelled", null);
                 break;
               case SUCCEEDED:
                 int status = outputData.getInt(UploadWorker.EXTRA_STATUS, UploadStatus.COMPLETE);
                 Map<String, String> headers = null;
-                Type type = new TypeToken<Map<String, String>>() {}.getType();
+                Type type = new TypeToken<Map<String, String>>() {
+                }.getType();
                 String headerJson = info.getOutputData().getString(UploadWorker.EXTRA_HEADERS);
                 if (headerJson != null) {
                   headers = plugin.gson.fromJson(headerJson, type);
@@ -150,7 +147,8 @@ public class FlutterUploaderPlugin
     }
   }
 
-  @Nullable private UploadCompletedObserver uploadCompletedObserver;
+  @Nullable
+  private UploadCompletedObserver uploadCompletedObserver;
 
   @Override
   public void onMethodCall(MethodCall call, @NonNull Result result) {
@@ -174,7 +172,8 @@ public class FlutterUploaderPlugin
   }
 
   @Override
-  public void onActivityCreated(Activity activity, Bundle savedInstanceState) {}
+  public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
+  }
 
   @Override
   public void onActivityStarted(Activity activity) {
@@ -183,17 +182,18 @@ public class FlutterUploaderPlugin
       UploadProgressReporter.getInstance().observeForever(uploadProgressObserver);
 
       uploadCompletedObserver = new UploadCompletedObserver(this);
-      WorkManager.getInstance(register.context())
-          .getWorkInfosByTagLiveData(TAG)
+      WorkManager.getInstance(register.context()).getWorkInfosByTagLiveData(TAG)
           .observeForever(uploadCompletedObserver);
     }
   }
 
   @Override
-  public void onActivityResumed(Activity activity) {}
+  public void onActivityResumed(Activity activity) {
+  }
 
   @Override
-  public void onActivityPaused(Activity activity) {}
+  public void onActivityPaused(Activity activity) {
+  }
 
   @Override
   public void onActivityStopped(Activity activity) {
@@ -204,8 +204,7 @@ public class FlutterUploaderPlugin
       }
 
       if (uploadCompletedObserver != null) {
-        WorkManager.getInstance(register.context())
-            .getWorkInfosByTagLiveData(TAG)
+        WorkManager.getInstance(register.context()).getWorkInfosByTagLiveData(TAG)
             .removeObserver(uploadCompletedObserver);
         uploadCompletedObserver = null;
       }
@@ -213,7 +212,8 @@ public class FlutterUploaderPlugin
   }
 
   @Override
-  public void onActivitySaveInstanceState(Activity activity, Bundle outState) {}
+  public void onActivitySaveInstanceState(Activity activity, Bundle outState) {
+  }
 
   @Override
   public void onActivityDestroyed(Activity activity) {
@@ -233,13 +233,14 @@ public class FlutterUploaderPlugin
     String tag = call.argument("tag");
     String earliestBeginDateString = call.argument("earliestbegindate");
 
+    SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     Date date;
     try {
       date = (Date) formatter.parse(earliestBeginDateString.substring(0, 19));
     } catch (Exception e) {
       date = new Date();
     }
-    long earliestBeginDate = date.getTime();
+    Date earliestBeginDate = date;
 
     List<String> methods = Arrays.asList(validHttpMethods);
 
@@ -258,19 +259,8 @@ public class FlutterUploaderPlugin
       items.add(FileItem.fromJson(file));
     }
 
-    WorkRequest request =
-        buildRequest(
-            new UploadTask(
-                taskIdKey,
-                url,
-                method,
-                items,
-                headers,
-                parameters,
-                connectionTimeout,
-                showNotification,
-                false,
-                tag, earliestBeginDate));
+    WorkRequest request = buildRequest(new UploadTask(taskIdKey, url, method, items, headers, parameters,
+        connectionTimeout, showNotification, false, tag, earliestBeginDate));
     WorkManager.getInstance(register.context()).enqueue(request);
     String taskId = request.getId().toString();
     if (!tasks.containsKey(taskId)) {
@@ -290,13 +280,14 @@ public class FlutterUploaderPlugin
     String tag = call.argument("tag");
     String earliestBeginDateString = call.argument("earliestbegindate");
 
+    SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     Date date;
     try {
       date = (Date) formatter.parse(earliestBeginDateString.substring(0, 19));
     } catch (Exception e) {
       date = new Date();
     }
-    long earliestBeginDate = date.getTime();
+    Date earliestBeginDate = date;
 
     List<String> methods = Arrays.asList(validHttpMethods);
 
@@ -309,19 +300,9 @@ public class FlutterUploaderPlugin
       return;
     }
 
-    WorkRequest request =
-        buildRequest(
-            new UploadTask(
-                taskIdKey,
-                url,
-                method,
-                Collections.singletonList(FileItem.fromJson(files)),
-                headers,
-                Collections.emptyMap(),
-                connectionTimeout,
-                showNotification,
-                true,
-                tag, earliestBeginDate));
+    WorkRequest request = buildRequest(
+        new UploadTask(taskIdKey, url, method, Collections.singletonList(FileItem.fromJson(files)), headers,
+            Collections.emptyMap(), connectionTimeout, showNotification, true, tag, earliestBeginDate));
     WorkManager.getInstance(register.context()).enqueue(request);
     String taskId = request.getId().toString();
 
@@ -347,15 +328,12 @@ public class FlutterUploaderPlugin
   private WorkRequest buildRequest(UploadTask task) {
     Gson gson = new Gson();
 
-    Data.Builder dataBuilder =
-        new Data.Builder()
-            .putString(UploadWorker.ARG_URL, task.getURL())
-            .putString(UploadWorker.ARG_METHOD, task.getMethod())
-            .putInt(UploadWorker.ARG_REQUEST_TIMEOUT, task.getTimeout())
-            .putBoolean(UploadWorker.ARG_SHOW_NOTIFICATION, task.canShowNotification())
-            .putBoolean(UploadWorker.ARG_BINARY_UPLOAD, task.isBinaryUpload())
-            .putString(UploadWorker.ARG_UPLOAD_REQUEST_TAG, task.getTag())
-            .putInt(UploadWorker.ARG_ID, task.getId());
+    Data.Builder dataBuilder = new Data.Builder().putString(UploadWorker.ARG_URL, task.getURL())
+        .putString(UploadWorker.ARG_METHOD, task.getMethod())
+        .putInt(UploadWorker.ARG_REQUEST_TIMEOUT, task.getTimeout())
+        .putBoolean(UploadWorker.ARG_SHOW_NOTIFICATION, task.canShowNotification())
+        .putBoolean(UploadWorker.ARG_BINARY_UPLOAD, task.isBinaryUpload())
+        .putString(UploadWorker.ARG_UPLOAD_REQUEST_TAG, task.getTag()).putInt(UploadWorker.ARG_ID, task.getId());
 
     List<FileItem> files = task.getFiles();
 
@@ -373,15 +351,9 @@ public class FlutterUploaderPlugin
     }
 
     return new OneTimeWorkRequest.Builder(UploadWorker.class)
-        .setConstraints(
-            new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-        .addTag(
-            TAG)
-        .setInitialDelay(task.getEarliestBeginDate() - System.currentTimeMillis(),
-            TimeUnit.MILLISECONDS)
-        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.SECONDS)
-        .setInputData(dataBuilder.build())
-        .build();
+        .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).addTag(TAG)
+        .setInitialDelay(task.getEarliestBeginDate().getTime() - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.SECONDS).setInputData(dataBuilder.build()).build();
   }
 
   private void sendUpdateProgress(String id, int status, int progress) {
@@ -394,8 +366,7 @@ public class FlutterUploaderPlugin
     channel.invokeMethod("updateProgress", args);
   }
 
-  private void sendFailed(
-      String id, int status, int statusCode, String code, String message, String[] details) {
+  private void sendFailed(String id, int status, int statusCode, String code, String message, String[] details) {
 
     String tag = tasks.get(id);
     Map<String, Object> args = new HashMap<>();

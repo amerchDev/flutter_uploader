@@ -3,6 +3,7 @@ package com.bluechilli.flutteruploader;
 import android.net.Uri;
 import java.util.List;
 import java.util.Map;
+import java.util.Date;
 
 public class UploadTask {
 
@@ -18,17 +19,9 @@ public class UploadTask {
   private Date _earliestBeginDate;
   private int _id;
 
-  public UploadTask(
-      int id,
-      String url,
-      String method,
-      List<FileItem> files,
-      Map<String, String> headers,
-      Map<String, String> data,
-      int requestTimeoutInSeconds,
-      boolean showNotification,
-      boolean binaryUpload,
-      String tag, Date earliestBeginDate) {
+  public UploadTask(int id, String url, String method, List<FileItem> files, Map<String, String> headers,
+      Map<String, String> data, int requestTimeoutInSeconds, boolean showNotification, boolean binaryUpload, String tag,
+      Date earliestBeginDate) {
     _id = id;
     _url = url;
     _method = method;
@@ -86,7 +79,7 @@ public class UploadTask {
     return _id;
   }
 
-  public int getEarliestBeginDate() {
+  public Date getEarliestBeginDate() {
     return _earliestBeginDate;
   }
 }
