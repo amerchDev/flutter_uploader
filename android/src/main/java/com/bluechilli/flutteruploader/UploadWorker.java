@@ -326,7 +326,8 @@ public class UploadWorker extends Worker implements CountProgressListener {
     } catch (Exception ex) {
       Log.d(TAG, "UploadWorker - GetMimeType", ex);
     }
-
+    if(type==null)
+      type = "application/octet-stream";
     return type;
   }
 
