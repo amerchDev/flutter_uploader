@@ -258,6 +258,11 @@ public class FlutterUploaderPlugin implements MethodCallHandler, Application.Act
     for (Map<String, String> file : files) {
       items.add(FileItem.fromJson(file));
     }
+    System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    System.out.println(items.size());
+    System.out.println(earliestBeginDateString);
+    System.out.println(earliestBeginDate);
+    System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 
     WorkRequest request = buildRequest(new UploadTask(taskIdKey, url, method, items, headers, parameters,
         connectionTimeout, showNotification, false, tag, earliestBeginDate));
@@ -349,7 +354,12 @@ public class FlutterUploaderPlugin implements MethodCallHandler, Application.Act
       String parametersJson = gson.toJson(task.getParameters());
       dataBuilder.putString(UploadWorker.ARG_DATA, parametersJson);
     }
-
+    System.out.println("bulidrequest!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    System.out.println(task.getEarliestBeginDate());
+    System.out.println(task.getEarliestBeginDate().getTime());
+    System.out.println(task.getEarliestBeginDate().getTime() - System.currentTimeMillis());
+    System.out.println("buildrequest!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    
     return new OneTimeWorkRequest.Builder(UploadWorker.class)
         .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).addTag(TAG)
         .setInitialDelay(task.getEarliestBeginDate().getTime() - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
